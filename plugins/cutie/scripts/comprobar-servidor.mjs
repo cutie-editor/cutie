@@ -1,0 +1,137 @@
+// Comprueba que el servidor de Cutie responde a cutie_estado con la licencia guardada en Claude Code
+// (pluginConfigs de settings.json, lo mismo que usa el plugin) y la misma URL que el plugin (../.mcp.json).
+// Salida: una línea de resumen y, si hay, el detalle. La clave nunca se imprime.
+// Códigos: 0 responde bien · 1 responde pero rechaza (licencia u otro error) · 2 no disponible · 3 sin clave.
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { leerAjustes, licenciaGuardada } from "./ajustes-claude.mjs"
+
+const URL_POR_DEFECTO = "https://cutie.profimaxia.com/api/mcp"
+const HERRAMIENTAS = [
+  "cutie_estado", "cutie_onboarding", "cutie_marca", "cutie_empezar",
+  "cutie_guia", "cutie_motor", "cutie_direccion", "cutie_revisar",
+]
+const PROTOCOLO = "2025-06-18"
+
+// Se lanza para terminar; no se usa process.exit porque en Windows rompe Node con fetch a medio cerrar.
+class Fin extends Error {
+  constructor(codigo, resumen, detalle) {
+    super(resumen)
+    this.codigo = codigo
+    this.detalle = detalle
+  }
+}
+
+function urlDelPlugin() {
+  try {
+    const ruta = join(dirname(fileURLToPath(import.meta.url)), "..", ".mcp.json")
+    return JSON.parse(readFileSync(ruta, "utf8")).mcpServers.cutie.url || URL_POR_DEFECTO
+  } catch {
+    return URL_POR_DEFECTO
+  }
+}
+
+// En Streamable HTTP la respuesta puede llegar como JSON o como eventos SSE.
+function leerRespuesta(tipo, texto, id) {
+  if (!texto) return null
+  if (!tipo.includes("text/event-stream")) {
+    try { return JSON.parse(texto) } catch { return null }
+  }
+  for (const evento of texto.split(/\r?\n\r?\n/)) {
+    const datos = evento.split(/\r?\n/).filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("\n")
+    if (!datos) continue
+    try {
+      const msg = JSON.parse(datos)
+      if (msg.id === id) return msg
+    } catch { /* evento que no es JSON-RPC */ }
+  }
+  return null
+}
+
+function textoDeError(cuerpo, texto) {
+  const e = cuerpo?.error
+  if (typeof e === "string") return e
+  if (e?.message) return e.message
+  return cuerpo?.message || texto || ""
+}
+
+const url = urlDelPlugin()
+let clave = ""
+let errorAjustes = ""
+try { clave = licenciaGuardada(leerAjustes()) } catch (err) { errorAjustes = err.message }
+let sesion = null
+let siguienteId = 1
+
+async function llamar(metodo, params, esNotificacion = false) {
+  const cuerpo = { jsonrpc: "2.0", method: metodo, ...(params ? { params } : {}) }
+  const id = esNotificacion ? null : siguienteId++
+  if (id !== null) cuerpo.id = id
+  const cabeceras = {
+    "Content-Type": "application/json",
+    Accept: "application/json, text/event-stream",
+    Authorization: `Bearer ${clave}`,
+    "MCP-Protocol-Version": PROTOCOLO,
+  }
+  if (sesion) cabeceras["Mcp-Session-Id"] = sesion
+  let res
+  try {
+    res = await fetch(url, { method: "POST", headers: cabeceras, body: JSON.stringify(cuerpo), signal: AbortSignal.timeout(60000) })
+  } catch (err) {
+    throw new Fin(2, `No se pudo conectar con el servidor de Cutie (${url}).`, err?.cause?.code || err?.message)
+  }
+  sesion = res.headers.get("mcp-session-id") || sesion
+  const tipo = res.headers.get("content-type") || ""
+  const texto = await res.text()
+  return { estado: res.status, mensaje: id === null ? null : leerRespuesta(tipo, texto, id), texto }
+}
+
+function resultado(r, paso) {
+  if (r.estado === 401 || r.estado === 403) {
+    let cuerpo = null
+    try { cuerpo = JSON.parse(r.texto) } catch { /* no es JSON */ }
+    const motivo = textoDeError(cuerpo, r.texto)
+    if (cuerpo?.jsonrpc) throw new Fin(1, `El servidor de Cutie rechaza la clave (${r.estado}).`, motivo)
+    throw new Fin(2, `El servidor respondió ${r.estado} sin respuesta MCP: puede que el servidor de Cutie aún no esté listo, o que la clave no sea válida.`, motivo)
+  }
+  if (r.estado === 404) throw new Fin(2, `El servidor de Cutie aún no está publicado en ${url} (404).`)
+  if (r.estado >= 500) throw new Fin(2, `El servidor de Cutie falla ahora mismo (${r.estado}). Prueba más tarde.`, r.texto)
+  if (!r.mensaje) throw new Fin(2, `Respuesta inesperada del servidor en ${paso} (${r.estado}).`, r.texto)
+  if (r.mensaje.error) throw new Fin(1, `El servidor de Cutie devolvió un error en ${paso}.`, textoDeError(r.mensaje, r.texto))
+  return r.mensaje.result
+}
+
+async function principal() {
+  if (errorAjustes) throw new Fin(3, "No se pueden leer los ajustes de Claude Code: no se puede probar el servidor.", errorAjustes)
+  if (!clave) throw new Fin(3, "No hay clave de licencia guardada en Claude Code: no se puede probar el servidor.")
+  const inicio = resultado(await llamar("initialize", {
+    protocolVersion: PROTOCOLO,
+    capabilities: {},
+    clientInfo: { name: "cutie-doctor", version: "0.1.0" },
+  }), "initialize")
+  await llamar("notifications/initialized", undefined, true)
+
+  const lista = resultado(await llamar("tools/list", {}), "tools/list")
+  const nombres = (lista?.tools || []).map((t) => t.name)
+  const faltan = HERRAMIENTAS.filter((n) => !nombres.includes(n))
+
+  const estado = resultado(await llamar("tools/call", { name: "cutie_estado", arguments: {} }), "cutie_estado")
+  const texto = (estado?.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n")
+
+  if (sesion) {
+    await fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${clave}`, "Mcp-Session-Id": sesion }, signal: AbortSignal.timeout(5000) }).catch(() => {})
+  }
+  const servidor = inicio?.serverInfo ? `${inicio.serverInfo.name} ${inicio.serverInfo.version || ""}`.trim() : "servidor MCP"
+  const aviso = faltan.length ? ` Faltan herramientas en el servidor: ${faltan.join(", ")}.` : ""
+  if (estado?.isError) throw new Fin(1, `El servidor de Cutie responde (${servidor}), pero cutie_estado devuelve un error.${aviso}`, texto)
+  throw new Fin(0, `El servidor de Cutie responde (${servidor}) y acepta tu clave.${aviso}`, texto)
+}
+
+try {
+  await principal()
+} catch (err) {
+  const fin = err instanceof Fin ? err : new Fin(2, "Fallo inesperado al probar el servidor de Cutie.", err?.stack || String(err))
+  console.log(fin.message)
+  if (fin.detalle) console.log(String(fin.detalle).trim().slice(0, 600))
+  process.exitCode = fin.codigo
+}

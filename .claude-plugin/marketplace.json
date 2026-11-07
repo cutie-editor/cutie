@@ -1,0 +1,18 @@
+{
+  "name": "cutie",
+  "description": "Cutie: edita tus vídeos con Claude Code y el método de Cutie.",
+  "owner": {
+    "name": "Cutie",
+    "url": "https://github.com/cutie-editor/cutie"
+  },
+  "plugins": [
+    {
+      "name": "cutie",
+      "source": "./plugins/cutie",
+      "repository": "https://github.com/cutie-editor/cutie",
+      "description": "Editor de vídeo Cutie: dile a Claude «edítame el vídeo» y lo monta en tu ordenador siguiendo el método de Cutie. Necesita tu clave de licencia.",
+      "category": "video",
+      "tags": ["video", "edicion", "reels"]
+    }
+  ]
+}

@@ -1,0 +1,520 @@
+﻿# Comprobaciones de Cutie en Windows, compartidas por el instalador y el doctor.
+# Se carga con: . "<carpeta>\cutie-comun.ps1"   (Windows PowerShell 5.1 o superior)
+# Este fichero va en UTF-8 con BOM: sin BOM, PowerShell 5.1 rompe las tildes.
+
+$CutieScripts     = $PSScriptRoot
+$CutieDatos       = Join-Path $env:LOCALAPPDATA 'Cutie'
+$CutieVenv        = Join-Path $CutieDatos 'venv'
+$CutiePython      = Join-Path $CutieVenv 'Scripts\python.exe'
+$CutieNode        = Join-Path $CutieDatos 'node'
+$RequisitosPython = Join-Path $CutieScripts 'requisitos-python.txt'
+$AjustesScript    = Join-Path $CutieScripts 'ajustes-claude.mjs'
+$ListaFuentes     = Join-Path $CutieScripts 'fuentes.txt'
+$CarpetaFuentes   = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
+$VersionTesseract = '0.2.0'
+$Sha256Tesseract  = '35822d306209476d5c80ac3fafed6be6110afd70840f6c7179e5a35caf57b988'
+$TsrctRuta        = Join-Path $env:LOCALAPPDATA 'Tesseract\bin\tsrct.cmd'
+$SkillsTesseract  = @('tesseract-video', 'tesseract-motion')
+$IdPlugin         = 'cutie@cutie'
+# Node: siempre la última 24.x (se mira al instalar en index.json de nodejs.org; sin red, la de respaldo).
+# Mínimo duro 22, que tiene parches hasta el 30-abr-2027; que vaya al día con ellos lo dice node-parcheado.mjs.
+$RamaNode            = 24
+$UrlNodeDist         = 'https://nodejs.org/dist'
+$VersionNodeRespaldo = '24.22.1'
+$NodeMinimo       = [version]'22.0.0'
+$PythonMinimo     = [version]'3.10.0'
+$DiscoMinimoGB    = 10
+
+function Nuevo-Resultado {
+    param(
+        [string]$Id, [string]$Nombre,
+        [ValidateSet('ok', 'falta', 'aviso')][string]$Estado,
+        [string]$Detalle = '', [string]$Arreglo = '', [switch]$Opcional
+    )
+    [pscustomobject]@{
+        Id = $Id; Nombre = $Nombre; Estado = $Estado
+        Detalle = $Detalle; Arreglo = $Arreglo; Opcional = [bool]$Opcional
+    }
+}
+
+# Ejecuta un programa sin que un error suyo pare el script. Devuelve código y líneas de salida.
+function Ejecutar {
+    param([string]$Programa, [string[]]$Argumentos = @())
+    $previo = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $lineas = @(& $Programa @Argumentos 2>&1 | ForEach-Object { $_.ToString() })
+        [pscustomobject]@{ Codigo = $LASTEXITCODE; Lineas = $lineas; Texto = ($lineas -join "`n") }
+    } catch {
+        [pscustomobject]@{ Codigo = -1; Lineas = @($_.Exception.Message); Texto = $_.Exception.Message }
+    } finally {
+        $ErrorActionPreference = $previo
+    }
+}
+
+function Leer-Version([string]$Texto) {
+    if ($Texto -match '(\d+)\.(\d+)(?:\.(\d+))?') {
+        $parche = if ($Matches[3]) { $Matches[3] } else { '0' }
+        return [version]("{0}.{1}.{2}" -f $Matches[1], $Matches[2], $parche)
+    }
+    $null
+}
+
+# Primera versión de la rama $Rama en el texto de index.json de nodejs.org (va de la más nueva a la más vieja).
+# Se lee como texto, igual que en Mac: ConvertFrom-Json de PowerShell 5.1 no pasa de 2 MB.
+function Elegir-VersionNode([string]$Texto, [int]$Rama = $RamaNode) {
+    if ($Texto -match ('"version":\s*"v(' + $Rama + '\.\d+\.\d+)"')) { return $Matches[1] }
+    $null
+}
+
+# La última 24.x publicada; sin red, o si index.json trae una más vieja, la de respaldo.
+# Se lee de RawContentStream: .Content solo es texto si el servidor dice que lo es.
+function Resolver-VersionNode {
+    $v = $null
+    try {
+        $r = Invoke-WebRequest -UseBasicParsing -Uri "$UrlNodeDist/index.json" -TimeoutSec 20
+        $v = Elegir-VersionNode ([Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray()))
+    } catch { }
+    if (-not $v -or [version]$v -lt [version]$VersionNodeRespaldo) { return $VersionNodeRespaldo }
+    $v
+}
+
+# winget publica cada versión de Node horas o días después que nodejs.org. De las líneas de «winget show
+# --versions»: la deseada si ya la tiene; si no, la última 24.x que tenga; si no se pueden leer, la deseada.
+function Elegir-VersionWinget([string[]]$Lineas, [string]$Deseada, [int]$Rama = $RamaNode) {
+    $hay = @($Lineas | ForEach-Object { "$_".Trim() } | Where-Object { $_ -match "^$Rama\.\d+\.\d+$" } |
+        ForEach-Object { [version]$_ } | Sort-Object -Descending)
+    if (-not $hay.Count -or $hay -contains [version]$Deseada) { return $Deseada }
+    "$($hay[0])"
+}
+
+function Buscar-Comando([string]$Nombre) {
+    $c = Get-Command $Nombre -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($c) { $c.Source } else { $null }
+}
+
+# Tras instalar algo, el PATH de esta ventana no se entera solo: se recarga del registro.
+function Actualizar-Path {
+    $partes = @(
+        [Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';'
+        [Environment]::GetEnvironmentVariable('Path', 'User') -split ';'
+        (Join-Path $env:USERPROFILE '.local\bin')
+        $env:Path -split ';'
+    )
+    $env:Path = (($partes | Where-Object { $_ } | Select-Object -Unique) -join ';')
+}
+
+# Claude Code recién instalado puede no estar aún en el PATH de esta ventana.
+function Ruta-Claude {
+    $c = Buscar-Comando 'claude'
+    if ($c) { return $c }
+    $nativo = Join-Path $env:USERPROFILE '.local\bin\claude.exe'
+    if (Test-Path -LiteralPath $nativo) { return $nativo }
+    $null
+}
+
+# App de escritorio de Claude: paquete MSIX (Microsoft Store o instalador nuevo) o la instalación antigua.
+function Ruta-AppEscritorio {
+    $p = Get-AppxPackage -Name 'Claude' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($p) { return $p.InstallLocation }
+    foreach ($r in (Join-Path $env:LOCALAPPDATA 'AnthropicClaude\claude.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Claude\Claude.exe')) {
+        if (Test-Path -LiteralPath $r) { return $r }
+    }
+    $null
+}
+
+# Registro de Cutie y licencia en los ajustes de Claude (settings.json), leídos con ajustes-claude.mjs.
+$script:EstadoAjustes = $null
+function Estado-Ajustes([switch]$Renovar) {
+    if ($script:EstadoAjustes -and -not $Renovar) { return $script:EstadoAjustes }
+    $node = Buscar-Comando 'node'
+    if (-not $node) { return $null }
+    $e = @{}
+    foreach ($l in (Ejecutar $node @($AjustesScript, 'estado')).Lineas) {
+        $i = $l.IndexOf('=')
+        if ($i -gt 0) { $e[$l.Substring(0, $i)] = $l.Substring($i + 1) }
+    }
+    $script:EstadoAjustes = $e
+    $e
+}
+
+# La terminal Bash de Claude Code en Windows es Git Bash (no el bash.exe de WSL de System32).
+function Ruta-GitBash {
+    if ($env:CLAUDE_CODE_GIT_BASH_PATH -and (Test-Path -LiteralPath $env:CLAUDE_CODE_GIT_BASH_PATH)) { return $env:CLAUDE_CODE_GIT_BASH_PATH }
+    $rutas = @()
+    $git = Buscar-Comando 'git'
+    if ($git) { $rutas += Join-Path (Split-Path (Split-Path $git -Parent) -Parent) 'bin\bash.exe' }
+    foreach ($base in $env:ProgramFiles, ${env:ProgramFiles(x86)}, (Join-Path $env:LOCALAPPDATA 'Programs')) {
+        if ($base) { $rutas += Join-Path $base 'Git\bin\bash.exe' }
+    }
+    $rutas | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+}
+
+function Carpeta-ConfigClaude {
+    if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }
+}
+
+function Leer-Fuentes {
+    $commit = $null
+    $lista = foreach ($linea in Get-Content -LiteralPath $ListaFuentes -Encoding UTF8) {
+        if (-not $linea.Trim() -or $linea.StartsWith('#')) { continue }
+        $c = $linea.Split('|')
+        if ($c[0] -eq 'commit') { $commit = $c[1]; continue }
+        [pscustomobject]@{ Familia = $c[0]; Ruta = $c[1]; Archivo = $c[2]; Nombre = $c[3]; Sha256 = $c[4] }
+    }
+    $lista | ForEach-Object { $_ | Add-Member -NotePropertyName Url -NotePropertyValue "https://raw.githubusercontent.com/google/fonts/$commit/$($_.Ruta)" -PassThru }
+}
+
+function Familias-Instaladas {
+    $nombres = foreach ($clave in 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts', 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts') {
+        $p = Get-Item -LiteralPath $clave -ErrorAction SilentlyContinue
+        if ($p) { $p.GetValueNames() }
+    }
+    @($nombres)
+}
+
+# Python de base para crear el entorno de Cutie. Se buscan las instalaciones registradas
+# (PEP 514) y las del PATH; se descartan las de conda (sus entornos pierden SSL en Windows).
+function Buscar-PythonBase {
+    $candidatos = New-Object System.Collections.Generic.List[string]
+    foreach ($raiz in 'HKCU:\SOFTWARE\Python\PythonCore', 'HKLM:\SOFTWARE\Python\PythonCore', 'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore') {
+        foreach ($v in (Get-ChildItem -LiteralPath $raiz -ErrorAction SilentlyContinue)) {
+            $ip = Get-ItemProperty -LiteralPath (Join-Path $v.PSPath 'InstallPath') -ErrorAction SilentlyContinue
+            if (-not $ip) { continue }
+            $exe = $ip.ExecutablePath
+            if (-not $exe -and $ip.'(default)') { $exe = Join-Path $ip.'(default)' 'python.exe' }
+            if ($exe -and (Test-Path -LiteralPath $exe)) { $candidatos.Add($exe) }
+        }
+    }
+    foreach ($c in @(Get-Command python, python3 -All -ErrorAction SilentlyContinue)) { $candidatos.Add($c.Source) }
+    $preferencia = @{ '3.12' = 0; '3.13' = 1; '3.11' = 2; '3.14' = 3; '3.10' = 4 }
+    $mejor = $null
+    foreach ($exe in ($candidatos | Select-Object -Unique)) {
+        $r = Ejecutar $exe @('-c', "import os,sys; print('%d.%d.%d' % sys.version_info[:3]); print(sys.executable); print(os.path.isdir(os.path.join(sys.prefix,'conda-meta')))")
+        if ($r.Codigo -ne 0 -or $r.Lineas.Count -lt 3) { continue }
+        $version = Leer-Version $r.Lineas[0]
+        if (-not $version -or $version -lt $PythonMinimo -or $r.Lineas[2] -eq 'True') { continue }
+        $corta = '{0}.{1}' -f $version.Major, $version.Minor
+        $orden = if ($preferencia.ContainsKey($corta)) { $preferencia[$corta] } else { 5 }
+        if (-not $mejor -or $orden -lt $mejor.Orden) {
+            $mejor = [pscustomobject]@{ Exe = $r.Lineas[1].Trim(); Version = $version; Orden = $orden }
+        }
+    }
+    $mejor
+}
+
+# Saca el JSON de una salida que puede traer avisos antes o después.
+function Json-DeTexto([string]$Texto) {
+    if (-not $Texto) { return $null }
+    $inicio = $Texto.IndexOfAny([char[]]'[{')
+    $fin = $Texto.LastIndexOfAny([char[]]']}')
+    if ($inicio -lt 0 -or $fin -le $inicio) { return $null }
+    try { $Texto.Substring($inicio, $fin - $inicio + 1) | ConvertFrom-Json } catch { $null }
+}
+
+function Ruta-Chrome {
+    $rutas = @()
+    foreach ($base in $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA) {
+        if ($base) { $rutas += Join-Path $base 'Google\Chrome\Application\chrome.exe' }
+    }
+    foreach ($clave in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe') {
+        $p = Get-ItemProperty -LiteralPath $clave -ErrorAction SilentlyContinue
+        if ($p -and $p.'(default)') { $rutas += $p.'(default)'.Trim('"') }
+    }
+    $rutas | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+}
+
+# El navegador que usa HyperFrames para renderizar (chrome-headless-shell en su caché).
+function Ruta-NavegadorHyperFrames {
+    if ($env:HYPERFRAMES_BROWSER_PATH -and (Test-Path -LiteralPath $env:HYPERFRAMES_BROWSER_PATH)) { return $env:HYPERFRAMES_BROWSER_PATH }
+    $raices = (Join-Path $env:USERPROFILE '.cache\hyperframes\chrome\chrome-headless-shell'), (Join-Path $env:USERPROFILE '.cache\puppeteer\chrome-headless-shell')
+    foreach ($raiz in $raices) {
+        $exe = Get-ChildItem -LiteralPath $raiz -Directory -ErrorAction SilentlyContinue |
+            Sort-Object { Leer-Version $_.Name } -Descending |
+            ForEach-Object { Join-Path $_.FullName 'chrome-headless-shell-win64\chrome-headless-shell.exe' } |
+            Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if ($exe) { return $exe }
+    }
+    $null
+}
+
+function Comprobar-Sistema {
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+    $arq = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+    $build = if ($os) { [int]$os.BuildNumber } else { [Environment]::OSVersion.Version.Build }
+    $nombre = if ($os) { $os.Caption } else { 'Windows' }
+    $det = "$nombre (compilación $build, $arq)"
+    if ($build -lt 17763) { return Nuevo-Resultado 'sistema' 'Windows 10 (1809) o 11' 'falta' $det 'Cutie necesita Windows 10 (versión 1809 o posterior) o Windows 11.' }
+    if ($arq -ne 'AMD64') { return Nuevo-Resultado 'sistema' 'Windows 10 (1809) o 11' 'aviso' $det 'Cutie está probado en equipos x64; en ARM puede fallar algo (Tesseract no tiene versión ARM).' }
+    Nuevo-Resultado 'sistema' 'Windows 10 (1809) o 11' 'ok' $det
+}
+
+function Comprobar-Winget {
+    $exe = Buscar-Comando 'winget'
+    if (-not $exe) { return Nuevo-Resultado 'winget' 'winget (instalador de Windows)' 'falta' 'no está' 'Instala «Instalador de aplicación» desde Microsoft Store: https://apps.microsoft.com/detail/9NBLGGH4NNS1' }
+    Nuevo-Resultado 'winget' 'winget (instalador de Windows)' 'ok' ((Ejecutar $exe @('--version')).Lineas | Select-Object -First 1)
+}
+
+function Comprobar-Git {
+    $exe = Buscar-Comando 'git'
+    if (-not $exe) { return Nuevo-Resultado 'git' 'Git' 'falta' 'no está' 'winget install --id Git.Git -e' }
+    Nuevo-Resultado 'git' 'Git' 'ok' ("" + (Leer-Version (Ejecutar $exe @('--version')).Texto))
+}
+
+# Además del mínimo, mira si lleva el último parche de seguridad de su rama (node-parcheado.mjs, con caché de
+# 24 h; sin red no dice nada). Si no lo lleva es un aviso: no impide usar Cutie, y el paso «node» lo pone al día.
+# Los arreglos no dicen «winget install OpenJS.NodeJS.LTS» a secas: desde el 28-oct-2026 eso instala la 26.
+function Comprobar-Node {
+    $nombre = 'Node.js 22 o superior'
+    $exe = Buscar-Comando 'node'
+    if (-not $exe) { return Nuevo-Resultado 'node' $nombre 'falta' 'no está' "Lo instala el instalador de Cutie (paso «node»): Node.js $RamaNode, la última con sus parches." }
+    $v = Leer-Version (Ejecutar $exe @('--version')).Texto
+    if (-not $v -or $v -lt $NodeMinimo) { return Nuevo-Resultado 'node' $nombre 'falta' "versión $v" "Vuelve a pasar el paso «node» del instalador de Cutie: pone Node.js $RamaNode, la última con sus parches." }
+    if (-not (Buscar-Comando 'npm.cmd')) { return Nuevo-Resultado 'node' $nombre 'falta' "$v sin npm" "Vuelve a pasar el paso «node» del instalador de Cutie: reinstala Node.js $RamaNode con npm." }
+    $parches = @{}
+    foreach ($l in (Ejecutar $exe @((Join-Path $CutieScripts 'node-parcheado.mjs'), 'estado')).Lineas) {
+        $i = $l.IndexOf('=')
+        if ($i -gt 0) { $parches[$l.Substring(0, $i)] = $l.Substring($i + 1) }
+    }
+    if ($parches['estado'] -eq 'atrasada') { return Nuevo-Resultado 'node' $nombre 'aviso' "$v, sin el último parche de seguridad ($($parches['parche']))" "Vuelve a pasar el paso «node» del instalador de Cutie: pone al día Node.js $RamaNode." }
+    $detalle = if ($parches['estado'] -eq 'al-dia') { "$v, con los parches de seguridad al día" } else { "$v" }
+    Nuevo-Resultado 'node' $nombre 'ok' $detalle
+}
+
+function Comprobar-Claude {
+    $nombre = 'Claude (app de escritorio o Claude Code)'
+    $partes = @()
+    if (Ruta-AppEscritorio) { $partes += 'app de escritorio' }
+    $cli = Ruta-Claude
+    if ($cli) { $partes += 'Claude Code ' + (((Ejecutar $cli @('--version')).Lineas | Select-Object -First 1) -replace '\s*\(Claude Code\)', '') }
+    if ($partes.Count) { return Nuevo-Resultado 'claude' $nombre 'ok' ($partes -join ' y ') }
+    if ($env:CLAUDECODE -eq '1') { return Nuevo-Resultado 'claude' $nombre 'ok' 'esta sesión de Claude Code' }
+    Nuevo-Resultado 'claude' $nombre 'falta' 'no está' 'Instala la app de escritorio de Claude (claude.com/download) y entra con tu cuenta de Claude.'
+}
+
+function Comprobar-Cuenta {
+    $nombre = 'Cuenta de Claude (Max 5x recomendado)'
+    $exe = Ruta-Claude
+    if (-not $exe) { return Nuevo-Resultado 'cuenta' $nombre 'aviso' 'sin la orden claude no se puede mirar el plan' 'Lo recomendado es Claude Max 5x; con Pro funciona, pero puede pausarse.' }
+    $estado = Json-DeTexto (Ejecutar $exe @('auth', 'status', '--json')).Texto
+    if (-not $estado) { return Nuevo-Resultado 'cuenta' $nombre 'aviso' 'no se pudo leer' 'Abre una terminal, escribe claude y entra con tu cuenta de Claude.' }
+    if (-not $estado.loggedIn) { return Nuevo-Resultado 'cuenta' $nombre 'falta' 'sin sesión iniciada' 'Abre una terminal, escribe claude y entra con tu cuenta de Claude.' }
+    switch ("$($estado.subscriptionType)") {
+        'max' { return Nuevo-Resultado 'cuenta' $nombre 'ok' 'sesión iniciada con Claude Max' }
+        'pro' { return Nuevo-Resultado 'cuenta' $nombre 'aviso' 'plan Pro' 'Con Pro funciona, pero editar un vídeo gasta mucho y puede pausarse hasta que se renueve tu cupo. Lo recomendado es Max 5x.' }
+        default { return Nuevo-Resultado 'cuenta' $nombre 'aviso' "plan «$($estado.subscriptionType)» ($($estado.authMethod))" 'Lo recomendado es Claude Max 5x.' }
+    }
+}
+
+function Comprobar-Ffmpeg {
+    $nombre = 'ffmpeg con libx264 y zscale'
+    $exe = Buscar-Comando 'ffmpeg'
+    if (-not $exe) { return Nuevo-Resultado 'ffmpeg' $nombre 'falta' 'no está' 'winget install --id Gyan.FFmpeg -e' }
+    $ver = Ejecutar $exe @('-hide_banner', '-version')
+    $primera = (($ver.Lineas | Select-Object -First 1) -replace '^ffmpeg version\s+', '') -replace '\s+Copyright.*$', ''
+    $faltan = @()
+    if ($ver.Texto -notmatch '--enable-libx264') { $faltan += 'libx264' }
+    if ((Ejecutar $exe @('-hide_banner', '-filters')).Texto -notmatch '\szscale\s') { $faltan += 'zscale' }
+    if (-not (Buscar-Comando 'ffprobe')) { $faltan += 'ffprobe' }
+    if ($faltan.Count) { return Nuevo-Resultado 'ffmpeg' $nombre 'falta' "$primera sin $($faltan -join ', ') ($exe)" 'Instala la versión completa (winget install --id Gyan.FFmpeg -e) y quita del PATH el ffmpeg anterior.' }
+    Nuevo-Resultado 'ffmpeg' $nombre 'ok' $primera
+}
+
+function Comprobar-Python {
+    $nombre = 'Python 3.10 o superior'
+    $base = Buscar-PythonBase
+    if ($base) { return Nuevo-Resultado 'python' $nombre 'ok' "$($base.Version) ($($base.Exe))" }
+    if (Test-Path -LiteralPath $CutiePython) { return Nuevo-Resultado 'python' $nombre 'aviso' 'no hay Python en el sistema, pero el entorno de Cutie existe' 'Solo hace falta para rehacer el entorno: winget install --id Python.Python.3.12 -e' }
+    Nuevo-Resultado 'python' $nombre 'falta' 'no está (los de conda no sirven)' 'winget install --id Python.Python.3.12 -e'
+}
+
+function Comprobar-Entorno {
+    $nombre = 'Entorno de Python de Cutie'
+    if (-not (Test-Path -LiteralPath $CutiePython)) { return Nuevo-Resultado 'venv' $nombre 'falta' "no existe $CutieVenv" 'Lo crea el instalador de Cutie.' }
+    $r = Ejecutar $CutiePython @('-X', 'utf8', (Join-Path $CutieScripts 'comprobar-python.py'))
+    $py = $r.Lineas | Where-Object { $_ -like 'PYTHON *' } | Select-Object -First 1
+    if (-not $py) { return Nuevo-Resultado 'venv' $nombre 'falta' 'su Python no arranca' 'Vuelve a ejecutar el instalador de Cutie: rehace el entorno.' }
+    $mal = @($r.Lineas | Where-Object { $_ -like 'MAL *' } | ForEach-Object { ($_ -split ' ', 3)[1] })
+    $bien = @($r.Lineas | Where-Object { $_ -like 'OK *' } | ForEach-Object { $p = $_ -split ' '; "$($p[1]) $($p[2])" })
+    $version = ($py -split ' ')[1]
+    if ($mal.Count) { return Nuevo-Resultado 'venv' $nombre 'falta' "Python $version; fallan: $($mal -join ', ')" 'Vuelve a ejecutar el instalador de Cutie: reinstala los paquetes.' }
+    Nuevo-Resultado 'venv' $nombre 'ok' "Python $version · $($bien -join ', ')"
+}
+
+# El motor de transcribir usa este modelo de la caché de Hugging Face; si no está, lo baja la primera
+# vez dentro de una orden con límite de 10 minutos. Una descarga a medias deja la carpeta sin model.bin.
+function Comprobar-Modelo {
+    $nombre = 'Modelo de transcripción large-v3-turbo'
+    if (-not (Test-Path -LiteralPath $CutiePython)) { return Nuevo-Resultado 'modelo' $nombre 'falta' 'no se puede mirar sin el entorno de Python de Cutie' 'Lo descarga el instalador de Cutie después de crear el entorno (unos 1,6 GB).' }
+    $r = Ejecutar $CutiePython @('-X', 'utf8', '-c', "import os; from faster_whisper import download_model; p = download_model('large-v3-turbo', local_files_only=True); print(os.path.getsize(os.path.join(p, 'model.bin')))")
+    $bytes = [long]0
+    if ($r.Codigo -eq 0) {
+        foreach ($linea in $r.Lineas) { $n = [long]0; if ([long]::TryParse($linea.Trim(), [ref]$n)) { $bytes = $n } }
+    }
+    if ($bytes -gt 1GB) { return Nuevo-Resultado 'modelo' $nombre 'ok' ("descargado ({0:N1} GB, caché de Hugging Face)" -f ($bytes / 1e9)) }
+    if ($r.Texto -match 'No module named|ImportError') { return Nuevo-Resultado 'modelo' $nombre 'falta' 'faster-whisper no está en el entorno de Cutie' 'Vuelve a ejecutar el instalador de Cutie: rehace el entorno y descarga el modelo.' }
+    Nuevo-Resultado 'modelo' $nombre 'falta' 'no está descargado' 'Vuelve a ejecutar el instalador de Cutie y acepta descargarlo (unos 1,6 GB): si no, la primera transcripción lo baja y puede cortarse.'
+}
+
+function Comprobar-Playwright {
+    $nombre = 'playwright-core de Cutie'
+    $pj = Join-Path $CutieNode 'node_modules\playwright-core\package.json'
+    if (-not (Test-Path -LiteralPath $pj)) { return Nuevo-Resultado 'playwright' $nombre 'falta' "no está en $CutieNode" 'Lo instala el instalador de Cutie (solo para Cutie, no global).' }
+    Nuevo-Resultado 'playwright' $nombre 'ok' ((Get-Content -LiteralPath $pj -Raw | ConvertFrom-Json).version)
+}
+
+function Comprobar-Chrome {
+    $exe = Ruta-Chrome
+    if (-not $exe) { return Nuevo-Resultado 'chrome' 'Google Chrome' 'falta' 'no está' 'winget install --id Google.Chrome -e (o descárgalo de google.com/chrome)' }
+    Nuevo-Resultado 'chrome' 'Google Chrome' 'ok' ((Get-Item -LiteralPath $exe).VersionInfo.ProductVersion)
+}
+
+function Comprobar-NavegadorHF {
+    $nombre = 'Navegador de HyperFrames'
+    $exe = Ruta-NavegadorHyperFrames
+    if (-not $exe) { return Nuevo-Resultado 'navegador' $nombre 'falta' 'no está' 'npx hyperframes browser ensure' }
+    Nuevo-Resultado 'navegador' $nombre 'ok' ("chrome-headless-shell " + (Leer-Version $exe))
+}
+
+function Comprobar-SkillsHF {
+    $nombre = 'Skills públicas de HyperFrames'
+    $dir = Join-Path (Carpeta-ConfigClaude) 'skills'
+    if (-not (Test-Path -LiteralPath (Join-Path $dir 'hyperframes\SKILL.md'))) { return Nuevo-Resultado 'skills' $nombre 'falta' "no están en $dir" 'npx skills add heygen-com/hyperframes -g -a claude-code' }
+    $n = @(Get-ChildItem -LiteralPath $dir -Directory -Filter 'hyperframes*').Count
+    Nuevo-Resultado 'skills' $nombre 'ok' "$n skills hyperframes* en $dir"
+}
+
+function Comprobar-Fuentes {
+    $nombre = 'Fuentes de las plantillas'
+    $instaladas = Familias-Instaladas
+    $faltan = @(Leer-Fuentes | Select-Object -ExpandProperty Familia -Unique | Where-Object {
+        $patron = '^' + [regex]::Escape($_) + '\b'
+        -not ($instaladas | Where-Object { $_ -match $patron })
+    })
+    if ($faltan.Count) { return Nuevo-Resultado 'fuentes' $nombre 'falta' "faltan: $($faltan -join ', ')" 'Las instala el instalador de Cutie (Google Fonts, licencia OFL).' }
+    Nuevo-Resultado 'fuentes' $nombre 'ok' 'Anton, Caveat, Poppins, Inter y JetBrains Mono'
+}
+
+# Vale cualquiera de las dos: el env de los ajustes de Claude (lo que pone el instalador) o una variable de usuario.
+function Comprobar-Telemetria {
+    $nombre = 'Telemetría de HyperFrames apagada'
+    $e = Estado-Ajustes
+    if ($e -and $e['telemetria'] -eq 'si') { return Nuevo-Resultado 'telemetria' $nombre 'ok' 'HYPERFRAMES_NO_TELEMETRY=1 en los ajustes de Claude' }
+    if ([Environment]::GetEnvironmentVariable('HYPERFRAMES_NO_TELEMETRY', 'User') -eq '1' -or $env:HYPERFRAMES_NO_TELEMETRY -eq '1') { return Nuevo-Resultado 'telemetria' $nombre 'ok' 'HYPERFRAMES_NO_TELEMETRY=1' }
+    Nuevo-Resultado 'telemetria' $nombre 'falta' 'sin HYPERFRAMES_NO_TELEMETRY=1' 'La apaga el instalador de Cutie (en los ajustes de Claude).'
+}
+
+function Comprobar-Tesseract {
+    $nombre = "Tesseract $VersionTesseract (opcional)"
+    if (-not (Test-Path -LiteralPath $TsrctRuta)) { return Nuevo-Resultado 'tesseract' $nombre 'aviso' 'no instalado' 'Opcional: el instalador de Cutie lo instala si aceptas las condiciones de Mirage.' -Opcional }
+    $v = "" + (Leer-Version (Ejecutar $TsrctRuta @('--version')).Texto)
+    $skills = Join-Path (Carpeta-ConfigClaude) 'skills'
+    $sinSkills = @($SkillsTesseract | Where-Object { -not (Test-Path -LiteralPath (Join-Path $skills "$_\SKILL.md")) })
+    $pin = Get-Content -LiteralPath (Join-Path $skills 'tesseract-video\references\cli-version.txt') -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($v -ne $VersionTesseract) { return Nuevo-Resultado 'tesseract' $nombre 'aviso' "tsrct $v (Cutie usa $VersionTesseract)" 'Reinstala Tesseract con el instalador de Cutie.' -Opcional }
+    if ($sinSkills.Count) { return Nuevo-Resultado 'tesseract' $nombre 'aviso' "tsrct $v; faltan las skills $($sinSkills -join ', ')" 'Vuelve a ejecutar el instalador de Cutie y acepta Tesseract.' -Opcional }
+    if ($pin -and $pin.Trim() -ne $VersionTesseract) { return Nuevo-Resultado 'tesseract' $nombre 'aviso' "tsrct $v, pero sus skills piden $($pin.Trim())" 'Vuelve a ejecutar el instalador de Cutie para alinear las skills de Tesseract.' -Opcional }
+    Nuevo-Resultado 'tesseract' $nombre 'ok' "tsrct $v y sus skills" -Opcional
+}
+
+# La clave vive en los ajustes de Claude (pluginConfigs), que es de donde la toma el plugin.
+function Comprobar-Licencia {
+    $nombre = 'Clave de licencia en Claude'
+    $e = Estado-Ajustes
+    if (-not $e) { return Nuevo-Resultado 'licencia' $nombre 'falta' 'sin Node.js no se pueden leer los ajustes de Claude' 'Instala Node.js con el instalador de Cutie.' }
+    if ($e['ajustes'] -eq 'json-invalido') { return Nuevo-Resultado 'licencia' $nombre 'falta' 'los ajustes de Claude no se pueden leer' "Revisa el fichero: $($e['detalle'])" }
+    if ($e['licencia'] -ne 'si') { return Nuevo-Resultado 'licencia' $nombre 'falta' 'no está guardada' 'Guárdala con el paso «registrar» del instalador de Cutie y tu clave cut_.' }
+    if ($e['licencia_formato'] -ne 'si') { return Nuevo-Resultado 'licencia' $nombre 'aviso' 'no empieza por cut_' 'Revisa que guardaste la clave completa de Cutie.' }
+    Nuevo-Resultado 'licencia' $nombre 'ok' $e['licencia_tapada']
+}
+
+# Los motores de Cutie se instalan con una orden bash (curl ... | node ...) en la terminal Bash de Claude Code.
+# Sin comillas dobles en la orden: PowerShell 5.1 las rompe al pasarlas a un programa.
+function Comprobar-Bash {
+    $nombre = 'Terminal Bash de Claude Code'
+    $bash = Ruta-GitBash
+    if (-not $bash) { return Nuevo-Resultado 'bash' $nombre 'falta' 'no hay Git Bash' 'Claude Code usa Git Bash para instalar los motores de Cutie: winget install --id Git.Git -e' }
+    $r = Ejecutar $bash @('-c', 'command -v curl >/dev/null && echo curl=si || echo curl=no; command -v node >/dev/null && echo node=si || echo node=no')
+    $faltan = @()
+    if ($r.Texto -notmatch 'curl=si') { $faltan += 'curl' }
+    if ($r.Texto -notmatch 'node=si') { $faltan += 'node' }
+    if ($faltan.Count) { return Nuevo-Resultado 'bash' $nombre 'falta' "Git Bash no encuentra: $($faltan -join ', ')" 'Instala lo que falta con el instalador de Cutie y cierra y vuelve a abrir la app de Claude.' }
+    Nuevo-Resultado 'bash' $nombre 'ok' 'curl y node visibles en Git Bash'
+}
+
+# Registrado = marketplace y plugin en los ajustes de Claude. La app lo descarga al abrirse de nuevo.
+function Comprobar-Plugin {
+    $nombre = 'Cutie registrado en Claude'
+    $e = Estado-Ajustes
+    if (-not $e) { return Nuevo-Resultado 'plugin' $nombre 'falta' 'sin Node.js no se pueden leer los ajustes de Claude' 'Instala Node.js con el instalador de Cutie.' }
+    if ($e['ajustes'] -eq 'json-invalido') { return Nuevo-Resultado 'plugin' $nombre 'falta' 'los ajustes de Claude no se pueden leer' "Revisa el fichero: $($e['detalle'])" }
+    if ($e['marketplace'] -ne 'si' -or $e['activado'] -ne 'si') { return Nuevo-Resultado 'plugin' $nombre 'falta' 'no está registrado' 'Regístralo con el paso «registrar» del instalador de Cutie.' }
+    if ($e['descargado'] -ne 'si') { return Nuevo-Resultado 'plugin' $nombre 'aviso' "registrado ($($e['fuente'])), aún sin descargar" 'Vuelve a pasar el paso «registrar» del instalador: lo descarga e instala. Después, cierra la app de Claude del todo y ábrela.' }
+    $detalle = if ($e['version']) { "registrado y descargado (versión $($e['version']))" } else { "registrado, cargado desde $($e['fuente'])" }
+    Nuevo-Resultado 'plugin' $nombre 'ok' $detalle
+}
+
+function Comprobar-Disco {
+    $nombre = "Espacio libre (más de $DiscoMinimoGB GB)"
+    $unidad = New-Object System.IO.DriveInfo (Split-Path -Qualifier $env:LOCALAPPDATA)
+    $libre = [math]::Round($unidad.AvailableFreeSpace / 1GB, 1)
+    $det = "$libre GB libres en $($unidad.Name)"
+    if ($libre -lt $DiscoMinimoGB) { return Nuevo-Resultado 'disco' $nombre 'falta' $det 'Libera espacio: brutos, entorno de Python, navegador y renders ocupan varios GB.' }
+    Nuevo-Resultado 'disco' $nombre 'ok' $det
+}
+
+function Comprobar-Memoria {
+    $nombre = 'Memoria (RAM)'
+    $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+    if (-not $cs) { return Nuevo-Resultado 'memoria' $nombre 'aviso' 'no se pudo leer' }
+    $total = [math]::Round($cs.TotalPhysicalMemory / 1GB, 1)
+    $libre = if ($os) { [math]::Round($os.FreePhysicalMemory * 1KB / 1GB, 1) } else { '?' }
+    $det = "$total GB en total, $libre GB libres ahora"
+    if ($total -lt 8) { return Nuevo-Resultado 'memoria' $nombre 'aviso' $det 'Con menos de 8 GB los renders van lentos o fallan: cierra otras aplicaciones al editar.' }
+    Nuevo-Resultado 'memoria' $nombre 'ok' $det
+}
+
+# Una comprobación que revienta no debe tumbar el doctor: queda como aviso con el error.
+function Ejecutar-Comprobacion([string]$Funcion) {
+    try {
+        & $Funcion
+    } catch {
+        $nombre = $Funcion -replace '^Comprobar-', ''
+        Nuevo-Resultado $nombre.ToLower() $nombre 'aviso' "no se pudo comprobar: $($_.Exception.Message)" 'Pasa este mensaje al soporte de Cutie.'
+    }
+}
+
+# Orden de comprobación = orden de instalación.
+$ComprobacionesCutie = @(
+    'Comprobar-Sistema', 'Comprobar-Winget', 'Comprobar-Git', 'Comprobar-Node', 'Comprobar-Claude', 'Comprobar-Cuenta',
+    'Comprobar-Ffmpeg', 'Comprobar-Python', 'Comprobar-Entorno', 'Comprobar-Modelo', 'Comprobar-Playwright', 'Comprobar-Chrome',
+    'Comprobar-NavegadorHF', 'Comprobar-SkillsHF', 'Comprobar-Fuentes', 'Comprobar-Telemetria', 'Comprobar-Tesseract',
+    'Comprobar-Licencia', 'Comprobar-Bash', 'Comprobar-Plugin', 'Comprobar-Disco', 'Comprobar-Memoria'
+)
+
+function Mostrar-Resultado($R) {
+    $color = @{ ok = 'Green'; falta = 'Red'; aviso = 'Yellow' }[$R.Estado]
+    $etiqueta = @{ ok = '  OK  '; falta = 'FALTA '; aviso = 'AVISO ' }[$R.Estado]
+    Write-Host "  [$etiqueta] " -ForegroundColor $color -NoNewline
+    Write-Host ("{0,-40} {1}" -f $R.Nombre, $R.Detalle)
+}
+
+# Resumen final: lo que falta (obligatorio) con su arreglo, y los avisos aparte.
+function Mostrar-Arreglos($Resultados) {
+    $faltan = @($Resultados | Where-Object { $_.Estado -eq 'falta' })
+    $avisos = @($Resultados | Where-Object { $_.Estado -eq 'aviso' -and $_.Arreglo })
+    Write-Host ''
+    if ($faltan.Count -eq 0) {
+        Write-Host 'Todo lo necesario está listo.' -ForegroundColor Green
+    } else {
+        Write-Host 'Qué falta y cómo arreglarlo:' -ForegroundColor Red
+        $i = 1
+        foreach ($r in $faltan) { Write-Host ("  {0}. Falta {1}: {2}" -f $i, $r.Nombre, $r.Arreglo); $i++ }
+    }
+    if ($avisos.Count) {
+        Write-Host ''
+        Write-Host 'Avisos:' -ForegroundColor Yellow
+        foreach ($r in $avisos) { Write-Host ("  - {0}: {1}" -f $r.Nombre, $r.Arreglo) }
+    }
+}

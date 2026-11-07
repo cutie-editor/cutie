@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Doctor de Cutie: «cutie-doctor» en la terminal Bash de Claude (Mac, o Git Bash en Windows).
+# Claude Code pone la carpeta bin/ del plugin en el PATH de esa terminal mientras el plugin está activo.
+raiz="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+case "$(uname -s)" in
+    Darwin) exec bash "$raiz/scripts/cutie-doctor.sh" "$@" ;;
+    MINGW*|MSYS*|CYGWIN*) exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$raiz/scripts/cutie-doctor.ps1")" "$@" ;;
+    *) echo "Cutie funciona en Windows y macOS; este equipo es $(uname -s)."; exit 3 ;;
+esac
