@@ -91,7 +91,7 @@ Lo de Cutie se guarda en su propia carpeta: `%LOCALAPPDATA%\Cutie` en Windows y 
 
 ## Contacto
 
-Soporte de **Cutie**: escríbenos a judith@matizbyyuyi.com. Si nos mandas lo que dice el doctor, lo resolvemos antes.
+Soporte de **Cutie**: escríbenos a judith@matizbyyuyi.agency. Si nos mandas lo que dice el doctor, lo resolvemos antes.
 
 ## Desinstalar
 

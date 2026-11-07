@@ -13,7 +13,7 @@ Si lo has leído con una herramienta que resume, descárgalo entero con la termi
 - No instales nada fuera de estos pasos ni toques otros ficheros. En Mac, nada de `sudo` ni Homebrew.
 - Las órdenes en primer plano se cortan a los 10 minutos: lanza los bloques B y C en segundo plano (`run_in_background`) y mira su salida cada minuto o dos hasta que aparezca la línea `RESUMEN:`.
 - El instalador escribe una línea por paso: `-> [paso] ok|ya estaba|falta|error|pendiente: ...`, y al final `RESUMEN: ...`. Código de salida: 0 bien · 1 algún paso no quedó bien · 2 uso incorrecto · 3 equipo no compatible · 4 esperando al usuario.
-- Si un paso falla dos veces, para, cuéntale al usuario qué pasa en una frase y ofrécele escribir al soporte de Cutie (judith@matizbyyuyi.com).
+- Si un paso falla dos veces, para, cuéntale al usuario qué pasa en una frase y ofrécele escribir al soporte de Cutie (judith@matizbyyuyi.agency).
 
 ## 1. Mira qué sistema es
 
