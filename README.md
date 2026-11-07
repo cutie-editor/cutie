@@ -95,7 +95,7 @@ Soporte de **Cutie**: escríbenos a judith@matizbyyuyi.agency. Si nos mandas lo 
 
 ## Desinstalar
 
-Pídele a Claude: «Desinstala Cutie: quita sus entradas de mis ajustes de Claude (extraKnownMarketplaces.cutie, enabledPlugins cutie@cutie y pluginConfigs cutie@cutie) con copia de seguridad, y borra la carpeta de Cutie». En Mac, que quite también las líneas «Cutie» de `~/.zshenv` y `~/.zshrc`.
+Pídele a Claude: «Desinstala Cutie: quita sus entradas de mis ajustes de Claude (extraKnownMarketplaces.cutie, enabledPlugins cutie@cutie y pluginConfigs cutie@cutie) con copia de seguridad, y borra la carpeta de Cutie». En Mac, que quite también las líneas «Cutie» de `~/.zshenv`, `~/.zprofile` y `~/.zshrc`.
 
 ## Alternativa: instalar desde la terminal
 

@@ -50,6 +50,39 @@ igual "fichero que no está en SHASUMS256.txt" "$(huella_node 24.22.1 node-v24.2
 URL_NODE_DIST="$SIN_RED"
 igual "sin red y sin huella fijada, nada" "$(huella_node 24.22.1 node-v24.22.1-darwin-x64.tar.gz)" ""
 
+# Orden del PATH. En Mac, path_helper (/etc/zprofile) y Homebrew mandan detrás lo que .zshenv puso delante: con
+# otro Node en /usr/local/bin u /opt/homebrew/bin, ese ganaba al de Cutie y el aviso de Node no se iba nunca.
+cuenta() { printf '%s' ":$1:" | awk -v d=":$2:" '{ n = 0; while ((i = index($0, d)) > 0) { n++; $0 = substr($0, i + 1) } print n }'; }
+tmp="$(mktemp -d)"
+casa="$tmp/casa"
+datos="$casa/.local/share/cutie"
+mkdir -p "$datos/uv" "$datos/nodejs/bin" "$datos/ffmpeg" "$tmp/viejo"
+printf '#!/bin/sh\necho cutie\n' > "$datos/nodejs/bin/node"
+printf '#!/bin/sh\necho viejo\n' > "$tmp/viejo/node"
+chmod +x "$datos/nodejs/bin/node" "$tmp/viejo/node"
+# El entorno.sh que escribe de verdad asegurar_entorno (instalar.sh), sacado tal cual de su heredoc
+awk '/<<.ENTORNO.$/ { dentro = 1; next } /^ENTORNO$/ { dentro = 0 } dentro' "$raiz/instalar.sh" > "$datos/entorno.sh"
+igual "instalar.sh escribe entorno.sh" "$(grep -c 'nodejs/bin' "$datos/entorno.sh")" "1"
+# Como queda tras path_helper: el Node viejo y el sistema delante, la carpeta de Cutie al final
+tras_path_helper="$tmp/viejo:$PATH:$datos/nodejs/bin:$datos/uv"
+for sh_prueba in bash sh dash zsh; do
+    command -v "$sh_prueba" >/dev/null 2>&1 || { echo "salto $sh_prueba (no está)"; continue; }
+    salida="$(HOME="$casa" PATH="$tras_path_helper" "$sh_prueba" -c '. "$HOME/.local/share/cutie/entorno.sh"; . "$HOME/.local/share/cutie/entorno.sh"; printf "%s\n%s\n" "$(node)" "$PATH"')"
+    ruta="$(printf '%s\n' "$salida" | sed -n 2p)"
+    igual "$sh_prueba: tras path_helper, node es el de Cutie" "$(printf '%s\n' "$salida" | sed -n 1p)" "cutie"
+    igual "$sh_prueba: las tres carpetas de Cutie, delante" "${ruta%%:$tmp/viejo:*}" "$datos/ffmpeg:$datos/nodejs/bin:$datos/uv"
+    igual "$sh_prueba: cargado dos veces, nodejs/bin sale una sola vez" "$(cuenta "$ruta" "$datos/nodejs/bin")" "1"
+    igual "$sh_prueba: no se pierde nada del PATH" "${ruta#*:$tmp/viejo:}" "$PATH"
+done
+# cargar_rutas_cutie, en el proceso del instalador, hace lo mismo
+salida="$(CUTIE_FFMPEG="$datos/ffmpeg" CUTIE_NODEJS="$datos/nodejs" CUTIE_UV="$datos/uv" PATH="$tras_path_helper" bash -c '. "$1"; CUTIE_FFMPEG="$2/ffmpeg"; CUTIE_NODEJS="$2/nodejs"; CUTIE_UV="$2/uv"; cargar_rutas_cutie; cargar_rutas_cutie; printf "%s\n%s\n" "$(node)" "$PATH"' _ "$raiz/plugins/cutie/scripts/cutie-comun.sh" "$datos")"
+igual "cargar_rutas_cutie: node es el de Cutie" "$(printf '%s\n' "$salida" | sed -n 1p)" "cutie"
+igual "cargar_rutas_cutie: nodejs/bin una sola vez" "$(cuenta "$(printf '%s\n' "$salida" | sed -n 2p)" "$datos/nodejs/bin")" "1"
+# Sin la carpeta de Cutie, entorno.sh no añade nada
+salida="$(HOME="$tmp/otra" PATH="/usr/bin:/bin" sh -c '. "$1"; printf "%s" "$PATH"' _ "$datos/entorno.sh")"
+igual "sin carpetas de Cutie, el PATH no cambia" "$salida" "/usr/bin:/bin"
+rm -rf "$tmp"
+
 echo ""
 if [ "$fallos" -eq 0 ]; then echo "Todas las pruebas pasan."; exit 0; fi
 echo "$fallos pruebas fallan."

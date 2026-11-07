@@ -5,7 +5,7 @@
       "url": "https://cutie.profimaxia.com/api/mcp",
       "headers": {
         "Authorization": "Bearer ${user_config.licencia}",
-        "X-Cutie-Plugin": "0.5.7"
+        "X-Cutie-Plugin": "0.5.8"
       },
       "timeout": 900000
     }

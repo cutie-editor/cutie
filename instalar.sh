@@ -76,18 +76,26 @@ preguntar() {
     done
 }
 
-# entorno.sh solo lleva rutas (node, ffmpeg y uv de Cutie). Lo carga ~/.zshenv, que lee todo zsh (también
-# la terminal de Claude), y ~/.zshrc, que lo vuelve a cargar después del path_helper de macOS.
+# entorno.sh solo lleva rutas (node, ffmpeg y uv de Cutie) y las pone delante aunque ya estén en el PATH. Lo carga
+# ~/.zshenv, que lee todo zsh (también la terminal de Claude), y ~/.zprofile y ~/.zshrc lo vuelven a cargar después
+# del path_helper de macOS y de Homebrew, que mandan al final lo que ya estaba: si no, un Node viejo de
+# /usr/local/bin u /opt/homebrew/bin ganaría al de Cutie.
 asegurar_entorno() {
     local perfil linea='[ -f "$HOME/.local/share/cutie/entorno.sh" ] && . "$HOME/.local/share/cutie/entorno.sh"'
     mkdir -p "$CUTIE_DATOS"
-    {
-        printf '# Entorno de Cutie: lo escribe el instalador de Cutie.\n'
-        printf 'for _d in "$HOME/.local/share/cutie/uv" "$HOME/.local/share/cutie/nodejs/bin" "$HOME/.local/share/cutie/ffmpeg"; do\n'
-        printf '    case ":$PATH:" in *":$_d:"*) ;; *) [ -d "$_d" ] && PATH="$_d:$PATH" ;; esac\n'
-        printf 'done\nunset _d\nexport PATH\n'
-    } > "$CUTIE_ENTORNO"
-    for perfil in "$HOME/.zshenv" "$HOME/.zshrc" "$HOME/.bash_profile"; do
+    cat > "$CUTIE_ENTORNO" <<'ENTORNO'
+# Entorno de Cutie: lo escribe el instalador de Cutie. Pone sus rutas delante aunque ya estén en el PATH.
+for _d in "$HOME/.local/share/cutie/uv" "$HOME/.local/share/cutie/nodejs/bin" "$HOME/.local/share/cutie/ffmpeg"; do
+    [ -d "$_d" ] || continue
+    _p=":$PATH:"
+    while case "$_p" in *":$_d:"*) true ;; *) false ;; esac; do _p="${_p%%:"$_d":*}:${_p#*:"$_d":}"; done
+    _p="${_p#:}"; _p="${_p%:}"
+    PATH="$_d${_p:+:$_p}"
+done
+unset _d _p
+export PATH
+ENTORNO
+    for perfil in "$HOME/.zshenv" "$HOME/.zprofile" "$HOME/.zshrc" "$HOME/.bash_profile"; do
         if [ "$perfil" = "$HOME/.bash_profile" ] && [ ! -f "$perfil" ]; then continue; fi
         grep -qF '.local/share/cutie/entorno.sh' "$perfil" 2>/dev/null && continue
         printf '\n# Cutie\n%s\n' "$linea" >> "$perfil"
