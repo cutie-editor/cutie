@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-FICHEROS_PLUGIN=".mcp.json scripts/cutie-comun.sh scripts/cutie-doctor.sh scripts/comprobar-servidor.mjs scripts/ajustes-claude.mjs scripts/node-parcheado.mjs scripts/comprobar-python.py scripts/requisitos-python.txt scripts/fuentes.txt"
+FICHEROS_PLUGIN=".mcp.json scripts/cutie-comun.sh scripts/cutie-doctor.sh scripts/comprobar-servidor.mjs scripts/ajustes-claude.mjs scripts/node-parcheado.mjs scripts/comprobar-python.py scripts/requisitos-python.txt scripts/fuentes.txt agents/cutie-director.md agents/cutie-revisor.md"
 CARPETA_TEMPORAL=""
 PLUGIN=""
 CODIGO=1

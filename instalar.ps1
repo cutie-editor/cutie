@@ -35,7 +35,7 @@ $ProgressPreference = 'SilentlyContinue'
 $FicherosPlugin = @(
     '.mcp.json', 'scripts/cutie-comun.ps1', 'scripts/cutie-doctor.ps1', 'scripts/comprobar-servidor.mjs',
     'scripts/ajustes-claude.mjs', 'scripts/node-parcheado.mjs', 'scripts/comprobar-python.py', 'scripts/requisitos-python.txt',
-    'scripts/fuentes.txt'
+    'scripts/fuentes.txt', 'agents/cutie-director.md', 'agents/cutie-revisor.md'
 )
 $CarpetaTemporal = $null
 $CodigoSalida = 1
