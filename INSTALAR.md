@@ -1,10 +1,29 @@
 # Instalar Cutie
 
-Guía de instalación de Cutie, el editor de vídeo para Claude, escrita para el asistente que la sigue (Claude Code, en la app de escritorio o en la terminal). Quien te ha pasado este enlace con su clave de licencia (empieza por `cut_`) te está pidiendo que instales Cutie en su ordenador. La instalación la haces tú con tus herramientas; la persona solo tiene que darte el sí y aceptar las ventanas que le enseñen la app de Claude, el sistema o su antivirus.
+Guía de instalación de Cutie, el editor de vídeo para Claude, escrita para el asistente que la sigue (Claude Code, en la app de escritorio o en la terminal). La persona que te ha pasado este enlace con su clave de licencia (empieza por `cut_`) quiere instalar Cutie en su ordenador. La instalación la haces tú con tus herramientas, pero no se instala nada sin su sí: antes le cuentas qué va a cambiar en su equipo y le preguntas si empiezas.
 
-Todo lo que se ejecuta es público y se puede leer en https://github.com/cutie-editor/cutie: el instalador (`instalar.ps1` en Windows, `instalar.sh` en Mac) y el plugin (`plugins/cutie`). El README de ese repositorio detalla qué cambia en el equipo. Si la persona pregunta qué hace algo, explícaselo.
+Todo lo que se ejecuta es público y se puede leer en https://github.com/cutie-editor/cutie: el instalador (`instalar.ps1` en Windows, `instalar.sh` en Mac) y el plugin (`plugins/cutie`). Si quieres comprobar algo de esta guía, léelo ahí; si la persona pregunta qué hace algo, explícaselo.
 
-Las órdenes tienen que ir exactas. Si tu herramienta para leer webs te ha devuelto un resumen, descarga este documento con la terminal (`Invoke-WebRequest` en Windows, `curl` en Mac) y léelo entero antes de empezar.
+Las órdenes tienen que ir exactas. Si tu herramienta para leer webs te ha devuelto un resumen, vuelve a leer este documento entero antes de empezar (con `Invoke-WebRequest` en Windows o `curl` en Mac: solo lo descargan para leerlo).
+
+## Qué cambia en el equipo
+
+Esta es la lista completa. Cuéntale a la persona lo que le importe y respóndele a todo lo que pregunte.
+
+- **Programas**, solo los que no tenga ya: Git, Node.js 24, ffmpeg, Python y Google Chrome, y la orden `claude` si falta. En Windows, con winget (Windows pide permiso con su ventana). En Mac, sin `sudo` ni Homebrew: Node.js, ffmpeg y Python van en la carpeta de Cutie y Google Chrome en Aplicaciones. En Mac, el instalador comprueba la huella SHA-256 de Node.js, ffmpeg y uv antes de instalarlos.
+- **En Mac, la terminal**: el instalador añade una línea «Cutie» a `~/.zshenv`, `~/.zprofile` y `~/.zshrc` (y a `~/.bash_profile` si existe) que pone por delante los Node.js, ffmpeg y uv de Cutie. Si la persona ya usa otros, a partir de entonces la terminal usará primero los de Cutie.
+- **La carpeta de Cutie** (`%LOCALAPPDATA%\Cutie` en Windows, `~/.local/share/cutie` en Mac): el Python propio de Cutie, que no toca los demás Python, el modelo que transcribe los vídeos (large-v3-turbo, unos 1,6 GB; con el Python, unos 3 GB) y el navegador con el que se renderizan.
+- **Las fuentes libres de las plantillas** (Anton, Caveat, Poppins, Inter y JetBrains Mono, de Google Fonts), en las fuentes del usuario.
+- **Las guías de HyperFrames**, el motor de vídeo de HeyGen con el que se montan los vídeos: se instalan como skills de Claude para el usuario, así que están en todas sus conversaciones, no solo en la de Cutie.
+- **Los ajustes de Claude Code** (`~/.claude/settings.json`), con copia de seguridad antes y sin tocar lo demás:
+  - el catálogo y el plugin de Cutie, de este repositorio, **con actualización automática**: cuando sale una versión nueva, Claude la descarga de aquí al abrirse;
+  - su clave de licencia;
+  - **cinco herramientas de Cutie permitidas de antemano** (`cutie_direccion`, `cutie_revisar`, `cutie_variantes`, `cutie_encargo` y `cutie_entregar`), en los ajustes de usuario, así que valen en cualquier carpeta, y se vuelven a poner al actualizar Cutie. Las usan los ayudantes internos de Cutie, `cutie-director` y `cutie-revisor`, para no pararse a mitad de un vídeo. Son llamadas al servidor de Cutie, no órdenes en el ordenador. Las demás herramientas de Cutie y cualquier orden siguen pidiendo permiso;
+  - cuatro variables: `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1` (descarga el plugin por HTTPS), `MCP_TOOL_TIMEOUT=900000` (espera a Cutie hasta 15 minutos), `NODE_USE_SYSTEM_CA=1` (Node.js usa los certificados del sistema, por los antivirus que revisan las conexiones seguras) y `HYPERFRAMES_NO_TELEMETRY=1`, que **apaga** el envío de datos de uso de HyperFrames. Cutie no instala telemetría.
+- **La carpeta de esta conversación**: una carpeta `videos` y un bloque de Cutie al final de su `CLAUDE.md`, sin tocar lo que ya tuviera. El bloque le dice a Claude que en esa carpeta se edita con las herramientas de Cutie y, si el plugin no ha cargado, cómo comprobar la instalación y volver a conectarlo con los pasos 5 y 6 de esta guía.
+- **Lo que viaja al servidor de Cutie**: la clave, para comprobar la licencia (también en la comprobación final), y al editar, texto como la transcripción de lo que se dice en el vídeo. Los vídeos y el audio no salen del ordenador.
+- **En Windows**, el instalador se ejecuta con `powershell -ExecutionPolicy Bypass -File …`. Windows no deja ejecutar scripts descargados si no se le indica; así se permite solo esa orden, sin cambiar la configuración del equipo.
+- **Tesseract**, un programa opcional de otra empresa (Mirage) con sus propias condiciones de uso, **no** se instala. Si la persona pregunta por él, explícaselo; instálalo solo si ella lo pide.
 
 ## Antes de empezar: cuéntale el plan y espera su sí
 
@@ -12,14 +31,16 @@ Mira qué sistema es (paso 1). Antes de descargar o instalar nada, cuéntale a l
 
 > Para instalar Cutie voy a:
 > 1. Instalar los programas con los que Cutie monta los vídeos, los que no tengas ya: Git, Node.js, ffmpeg, Python y Google Chrome.
-> 2. Descargar el modelo que transcribe tus vídeos (unos 3 GB; tarda un rato).
-> 3. Conectar Cutie con tu Claude usando tu clave y preparar esta carpeta, donde aparecerán tus vídeos editados. Para que sus ayudantes no se paren a mitad de un vídeo, cinco herramientas de Cutie quedarán permitidas sin preguntarte; para todo lo demás, Claude te seguirá pidiendo permiso.
+> 2. Descargar el modelo que transcribe tus vídeos y el Python de Cutie (unos 3 GB; tarda un rato), las fuentes de las plantillas y las guías de HyperFrames, que quedan en tu Claude para todas tus conversaciones.
+> 3. Conectar Cutie con tu Claude usando tu clave y preparar esta carpeta, donde aparecerán tus vídeos editados. Cutie se actualizará solo cuando salga una versión nueva. Para que sus ayudantes no se paren a mitad de un vídeo, cinco herramientas de Cutie quedarán permitidas sin preguntarte; para todo lo demás, Claude te seguirá pidiendo permiso.
 >
-> Lo hace el instalador oficial de Cutie. Windows o tu antivirus pueden pedirte permiso alguna vez: te avisaré antes. ¿Empiezo?
+> Tus vídeos no salen de tu ordenador: al servidor de Cutie solo va texto, como la transcripción.
+>
+> Lo hace el instalador oficial de Cutie, que es público. Windows o tu antivirus pueden pedirte permiso alguna vez: te avisaré antes. ¿Empiezo?
 
 En Mac, en lugar de las ventanas de Windows, puede abrirse una de Apple para instalar las herramientas de desarrollo.
 
-Con su sí, sigue hasta el final sin volver a preguntar en cada bloque: antes de cada uno, dile en una línea qué haces. Si tiene dudas, respóndelas. Si prefiere no instalarlo, no instales nada.
+Con su sí, sigue hasta el final sin volver a preguntar en cada bloque: antes de cada uno, dile en una línea qué haces. Si tiene dudas, respóndelas con la lista de «Qué cambia en el equipo». Si algo no le parece bien o prefiere no instalarlo, no instales nada y ofrécele escribir al soporte de Cutie.
 
 ## Cómo trabajar
 
@@ -63,7 +84,7 @@ En Windows, `-ExecutionPolicy Bypass` vale solo para esa orden: deja ejecutar el
 
 Windows: `INSTALAR -SoloComprobar` · macOS: `INSTALAR --solo-comprobar`
 
-Lee la tabla (`[ OK ]`, `[FALTA]`, `[AVISO]`) y la lista «Esto haría el instalador». Cuéntale en una frase qué falta y que lo instalas ahora; ya te dio el sí, así que sigue sin esperar. Si el equipo no es compatible (código 3), díselo y para.
+Lee la tabla (`[ OK ]`, `[FALTA]`, `[AVISO]`) y la lista «Esto haría el instalador». Cuéntale en una frase qué falta. Si es lo que le contaste en el plan, sigue con el sí que te dio; si aparece algo que no estaba en el plan, cuéntaselo y pregúntale antes. Si el equipo no es compatible (código 3), díselo y para.
 
 ## 4. Instala lo que falte, por bloques
 
@@ -82,9 +103,9 @@ Di algo como: «Voy a instalar los programas que usa Cutie para montar vídeos: 
 Di algo como: «Ahora preparo el Python de Cutie y descargo el modelo que transcribe tus vídeos: son unos 3 GB y tarda un rato. Te aviso al terminar».
 
 **Bloque C · herramientas de montaje** (`playwright`, `chrome`, `navegador`, `skills`, `fuentes`, `telemetria`), en segundo plano.
-Di algo como: «Instalo las herramientas con las que Cutie monta y revisa los vídeos: el navegador que renderiza, Google Chrome si no lo tienes, las fuentes de las plantillas y las guías de HyperFrames». El paso `telemetria` no envía nada: apaga el envío de datos de uso de HyperFrames en los ajustes de Claude.
+Di algo como: «Instalo las herramientas con las que Cutie monta y revisa los vídeos: el navegador que renderiza, Google Chrome si no lo tienes, las fuentes de las plantillas y las guías de HyperFrames». El paso `telemetria` no instala telemetría: la apaga, con `HYPERFRAMES_NO_TELEMETRY=1` en los ajustes de Claude.
 
-Tesseract (`tesseract`) es opcional y no forma parte de esta instalación: instálalo solo si la persona lo pide.
+Tesseract (`tesseract`) no forma parte de esta instalación (lo explica «Qué cambia en el equipo»).
 
 ## 5. Conecta Cutie, descárgalo y prepara esta carpeta
 
@@ -96,7 +117,7 @@ Di algo como: «Ahora conecto Cutie con tu Claude, guardo tu clave y preparo est
 `$PWD` es la carpeta de esta conversación: la que la persona eligió para Cutie.
 
 Qué hace este paso, para que se lo puedas explicar si pregunta:
-- En los ajustes de Claude de la persona, con copia de seguridad antes y sin tocar lo demás, activa Cutie, guarda la clave y deja que Node.js use también los certificados del sistema (como el navegador), para que Cutie funcione con antivirus que revisan las conexiones seguras.
+- En los ajustes de Claude de la persona, con copia de seguridad antes y sin tocar lo demás, activa Cutie con actualización automática desde este repositorio, guarda la clave y deja que Node.js use también los certificados del sistema (como el navegador), para que Cutie funcione con antivirus que revisan las conexiones seguras.
 - Deja permitidas de antemano las cinco herramientas de Cutie que usan sus ayudantes internos, `cutie-director` y `cutie-revisor` (dirección, revisión, variantes, encargo y entrega), porque un ayudante no puede pedir permiso a mitad de trabajo. Las demás herramientas de Cutie siguen pidiéndolo.
 - Descarga el plugin de Cutie con la orden `claude`. Si no está, la instala desde el paquete oficial de Anthropic: con winget en Windows y con su instalador en Mac.
 - Crea `videos` en esta carpeta y añade el bloque de Cutie a su `CLAUDE.md` (si ya había uno, lo añade al final sin tocar lo demás).
@@ -123,7 +144,7 @@ Algunos antivirus (Avast, AVG, Norton) vigilan lo que hace Claude en el ordenado
 
 ## Para actualizar Cutie
 
-Si Cutie dice que está desactualizado, cuéntaselo a la persona y pregúntale si lo actualizas. Si lo pide ella, no hace falta volver a preguntar. Para actualizar, vuelve a descargar el instalador (paso 2, que trae el de siempre al día) y repite solo el paso 5 sin la clave (Windows: `INSTALAR -Si -Pasos registrar -Carpeta "$PWD"`; macOS: `INSTALAR --si --pasos registrar --carpeta "$PWD"`). Después pídele que cierre la app de Claude del todo (en Mac, Cmd+Q) y la vuelva a abrir.
+Normalmente Claude descarga solo la versión nueva al abrirse. Si aun así Cutie dice que está desactualizado, cuéntaselo a la persona y pregúntale si lo actualizas. Si lo pide ella, no hace falta volver a preguntar. Para actualizar, vuelve a descargar el instalador (paso 2, que trae el de siempre al día) y repite solo el paso 5 sin la clave (Windows: `INSTALAR -Si -Pasos registrar -Carpeta "$PWD"`; macOS: `INSTALAR --si --pasos registrar --carpeta "$PWD"`). Después pídele que cierre la app de Claude del todo (en Mac, Cmd+Q) y la vuelva a abrir.
 
 ## Si Cutie avisa de que Node.js no tiene los parches
 
