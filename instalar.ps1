@@ -4,7 +4,7 @@
 # Uso:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File instalar.ps1 -SoloComprobar     solo mira, no cambia nada
 #   ... -Doctor                                         pasa el doctor completo (también prueba el servidor)
-#   ... -Si [-Pasos git,node,...] [-Licencia cut_...] [-Carpeta <ruta>]   sin preguntas (pegar INSTALAR.md ya es su sí)
+#   ... -Si [-Pasos git,node,...] [-Licencia cut_...] [-Carpeta <ruta>]   sin preguntas (la persona ya dio su sí en el chat)
 #       -Carpeta: crea ahí videos\ y el CLAUDE.md de Cutie
 #   ... (sin opciones)                                  pregunta en la terminal antes de cada paso
 #   ... -Marketplace <carpeta del repo>                 registra Cutie desde una carpeta local (pruebas)
@@ -31,6 +31,9 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+# Node, npm y npx confían también en los certificados de Windows, como el navegador: con un antivirus que revisa las
+# conexiones seguras (el escaneo HTTPS de Avast o AVG) sus descargas fallarían con «self-signed certificate in certificate chain».
+$env:NODE_USE_SYSTEM_CA = '1'
 
 $FicherosPlugin = @(
     '.mcp.json', 'scripts/cutie-comun.ps1', 'scripts/cutie-doctor.ps1', 'scripts/comprobar-servidor.mjs',
@@ -88,10 +91,10 @@ function Instalar-Node {
     Instalar-ConWinget 'OpenJS.NodeJS.LTS' "Node.js $enWinget" $enWinget
 }
 
+# El paquete oficial de Anthropic en winget, que comprueba su SHA-256. No «irm https://claude.ai/install.ps1 | iex»:
+# los antivirus vigilan esa forma de descargar y ejecutar en un paso.
 function Instalar-Claude {
-    Write-Host 'Instalando Claude Code (la orden claude) con el instalador oficial de Anthropic...'
-    & powershell -NoProfile -ExecutionPolicy Bypass -Command 'irm https://claude.ai/install.ps1 | iex'
-    Actualizar-Path
+    Instalar-ConWinget 'Anthropic.ClaudeCode' 'Claude Code (la orden claude)'
 }
 
 function Instalar-Entorno {
@@ -110,9 +113,21 @@ function Instalar-Entorno {
 
 function Descargar-Modelo {
     if (-not (Test-Path -LiteralPath $CutiePython)) { throw 'falta el entorno de Python de Cutie (paso venv)' }
+    # truststore: Python usa los certificados de Windows, como el navegador. Sin él, con el escaneo HTTPS de un antivirus
+    # (Avast, AVG) la descarga falla con «certificate verify failed».
+    & $CutiePython -m pip install --disable-pip-version-check --quiet truststore
     Write-Host 'Descargando el modelo de transcripción large-v3-turbo (unos 1,6 GB; tarda según la conexión)...'
     $env:HF_HUB_DISABLE_SYMLINKS_WARNING = '1'
-    & $CutiePython -c "from faster_whisper import download_model; download_model('large-v3-turbo')"
+    $codigo = @'
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
+from faster_whisper import download_model
+download_model('large-v3-turbo')
+'@
+    & $CutiePython -c $codigo
 }
 
 function Instalar-Playwright {

@@ -59,6 +59,7 @@ test("paso registrar sobre un settings.json de ejemplo (CLAUDE_CONFIG_DIR): copi
   assert.equal(new Set(final.permissions.allow).size, final.permissions.allow.length)
   assert.equal(final.permissions.allow.length, 1 + PERMISOS_CUTIE.length)
   assert.equal(final.env.OTRA, "1")
+  assert.equal(final.env.NODE_USE_SYSTEM_CA, "1")
   const copias = readdirSync(dir).filter((f) => f.startsWith("settings.json.antes-de-cutie-"))
   assert.ok(copias.length >= 1)
   const primera = JSON.parse(readFileSync(join(dir, copias.sort()[0]), "utf8"))

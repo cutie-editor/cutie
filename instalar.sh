@@ -17,6 +17,9 @@
 REPO_CUTIE="cutie-editor/cutie"
 RAMA_CUTIE="main"
 URL_BASE_CUTIE="https://raw.githubusercontent.com/$REPO_CUTIE/$RAMA_CUTIE"
+# Node, npm y npx confían también en los certificados del sistema, como el navegador: con un antivirus que revisa las
+# conexiones seguras (el escaneo HTTPS de Avast o AVG) sus descargas fallarían con «self-signed certificate in certificate chain».
+export NODE_USE_SYSTEM_CA=1
 
 SOLO_COMPROBAR=0; DOCTOR=0; SI=0; PASOS=""; LICENCIA=""; MARKETPLACE=""; CARPETA=""
 while [ $# -gt 0 ]; do
@@ -201,8 +204,11 @@ instalar_venv() {
 
 instalar_modelo() {
     if [ ! -x "$CUTIE_PYTHON" ]; then echo "Falta el entorno de Python de Cutie (paso venv)."; return 1; fi
+    # truststore: Python usa los certificados del sistema, como el navegador. Sin él, con el escaneo HTTPS de un antivirus
+    # (Avast, AVG) la descarga falla con «certificate verify failed».
+    "$CUTIE_PYTHON" -m pip install --disable-pip-version-check --quiet truststore
     echo "Descargando el modelo de transcripción large-v3-turbo (unos 1,6 GB; tarda según la conexión)..."
-    "$CUTIE_PYTHON" -c "from faster_whisper import download_model; download_model('large-v3-turbo')"
+    "$CUTIE_PYTHON" -c $'try:\n    import truststore\n    truststore.inject_into_ssl()\nexcept ImportError:\n    pass\nfrom faster_whisper import download_model\ndownload_model(\'large-v3-turbo\')'
 }
 
 instalar_playwright() {
