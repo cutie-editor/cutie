@@ -17,7 +17,7 @@ Cutie edita tus vídeos dentro de Claude, en tu propio ordenador. Le dices «ed�
 
    > Instala Cutie siguiendo https://raw.githubusercontent.com/cutie-editor/cutie/main/INSTALAR.md. Mi clave de licencia es cut_…
 
-4. Claude lo instala todo sin preguntarte. Tú solo aceptas los permisos que te pida en el chat. En Windows verás también ventanas «¿Quieres permitir que esta aplicación haga cambios?»: pulsa **Sí**. En Mac puede abrirse una ventana de Apple para instalar las herramientas de desarrollo: pulsa **Instalar**.
+4. Claude te cuenta qué va a instalar y te pide un sí. Después lo instala todo: tú solo aceptas los permisos que te pida en el chat. En Windows verás también ventanas «¿Quieres permitir que esta aplicación haga cambios?»: pulsa **Sí**. En Mac puede abrirse una ventana de Apple para instalar las herramientas de desarrollo: pulsa **Instalar**.
 5. Cuando Claude te lo diga, **cierra la app del todo y vuelve a abrirla**.
 
 ## Tu primer vídeo
@@ -74,6 +74,8 @@ La transcripción, el montaje y el render se hacen en tu equipo. Los reels que n
 - Opcional: Tesseract, de Mirage. Si lo instalas, aceptas sus condiciones de uso.
 - El plugin de Cutie para Claude (versión 0.6.1), conectado con tu clave. Incluye dos ayudantes internos, `cutie-director` y `cutie-revisor`, que Claude lanza solo cuando hace falta; el instalador también deja permitidas en tu configuración de Claude las herramientas de Cutie.
 
+En tus ajustes de Claude (`settings.json` de Claude Code), con una copia de seguridad antes y sin tocar lo demás, el instalador añade el catálogo y el plugin de Cutie, tu clave, el permiso para las cinco herramientas de Cutie que usan sus ayudantes (dirección, revisión, variantes, encargo y entrega) y tres variables: `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1` (descarga el plugin por HTTPS), `MCP_TOOL_TIMEOUT=900000` (espera a Cutie hasta 15 minutos) y `NODE_USE_SYSTEM_CA=1` (Node.js usa también los certificados del sistema, para funcionar con antivirus que revisan las conexiones seguras).
+
 Lo de Cutie se guarda en su propia carpeta: `%LOCALAPPDATA%\Cutie` en Windows y `~/.local/share/cutie` en Mac.
 
 ## Si algo falla
@@ -88,6 +90,7 @@ Lo de Cutie se guarda en su propia carpeta: `%LOCALAPPDATA%\Cutie` en Windows y 
 | Claude no consigue descargar un motor de Cutie | Cierra la app y vuelve a abrirla. Si sigue, pídele que compruebe la instalación. |
 | El render va muy lento o se corta | Cierra otros programas pesados y comprueba que tienes más de 10 GB libres. |
 | Cutie avisa de que tu Node.js no tiene el último parche de seguridad | Puedes seguir editando. Para ponerlo al día, dile a Claude «actualiza el Node.js de Cutie». |
+| Tu antivirus (Avast, AVG, Norton) avisa o bloquea algo al instalar | Si te pide confirmación, es el instalador de Cutie y decides tú. Si lo bloquea, escríbenos con una captura del aviso y lo vemos contigo. |
 
 ## Contacto
 

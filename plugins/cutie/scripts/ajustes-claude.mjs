@@ -82,6 +82,9 @@ export function registrar(a, { licencia, fuenteLocal }) {
   permitirHerramientas(a)
   const env = seccion(a, "env")
   env.CLAUDE_CODE_PLUGIN_PREFER_HTTPS = "1"
+  // Node.js (motores, HyperFrames, la comprobación del servidor) confía también en los certificados del sistema, como el
+  // navegador: con el escaneo HTTPS de un antivirus (Avast, AVG) sus conexiones fallarían. Si la persona ya lo fijó, se respeta
+  if (env.NODE_USE_SYSTEM_CA === undefined) env.NODE_USE_SYSTEM_CA = "1"
   // La dirección de un vídeo tarda 3-4 min en el servidor (puede llegar a 13): que Claude Code la espere entera
   if (!(Number(env.MCP_TOOL_TIMEOUT) >= ESPERA_MCP_MS)) env.MCP_TOOL_TIMEOUT = String(ESPERA_MCP_MS)
   return a
