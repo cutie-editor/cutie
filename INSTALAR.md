@@ -15,6 +15,8 @@ Mira qué sistema es (paso 1). Antes de descargar o instalar nada, cuéntale a l
 > 2. Descargar el modelo que transcribe tus vídeos (unos 3 GB; tarda un rato).
 > 3. Conectar Cutie con tu Claude usando tu clave y preparar esta carpeta, donde aparecerán tus vídeos editados. Para que sus ayudantes no se paren a mitad de un vídeo, cinco herramientas de Cutie quedarán permitidas sin preguntarte; para todo lo demás, Claude te seguirá pidiendo permiso.
 >
+> Conviene que sepas: Cutie se actualiza solo cuando sale una versión nueva (si prefieres hacerlo tú, dímelo y lo dejo apagado). Tus vídeos no salen de tu ordenador: al servidor de Cutie solo va texto, como la transcripción. Y apago el envío de datos de uso de HyperFrames, el motor que monta los vídeos.
+>
 > Lo hace el instalador oficial de Cutie. Windows o tu antivirus pueden pedirte permiso alguna vez: te avisaré antes. ¿Empiezo?
 
 En Mac, en lugar de las ventanas de Windows, puede abrirse una de Apple para instalar las herramientas de desarrollo.
@@ -84,7 +86,7 @@ Di algo como: «Ahora preparo el Python de Cutie y descargo el modelo que transc
 **Bloque C · herramientas de montaje** (`playwright`, `chrome`, `navegador`, `skills`, `fuentes`, `telemetria`), en segundo plano.
 Di algo como: «Instalo las herramientas con las que Cutie monta y revisa los vídeos: el navegador que renderiza, Google Chrome si no lo tienes, las fuentes de las plantillas y las guías de HyperFrames». El paso `telemetria` no envía nada: apaga el envío de datos de uso de HyperFrames en los ajustes de Claude.
 
-Tesseract (`tesseract`) es opcional y no forma parte de esta instalación: instálalo solo si la persona lo pide.
+Tesseract (`tesseract`) es opcional y no forma parte de esta instalación: instálalo solo si la persona lo pide. Si pregunta por él, explícale que es de otra empresa (Mirage) y que, si lo instala, acepta sus condiciones de uso.
 
 ## 5. Conecta Cutie, descárgalo y prepara esta carpeta
 
@@ -98,6 +100,7 @@ Di algo como: «Ahora conecto Cutie con tu Claude, guardo tu clave y preparo est
 Qué hace este paso, para que se lo puedas explicar si pregunta:
 - En los ajustes de Claude de la persona, con copia de seguridad antes y sin tocar lo demás, activa Cutie, guarda la clave y deja que Node.js use también los certificados del sistema (como el navegador), para que Cutie funcione con antivirus que revisan las conexiones seguras.
 - Deja permitidas de antemano las cinco herramientas de Cutie que usan sus ayudantes internos, `cutie-director` y `cutie-revisor` (dirección, revisión, variantes, encargo y entrega), porque un ayudante no puede pedir permiso a mitad de trabajo. Las demás herramientas de Cutie siguen pidiéndolo.
+- Deja el plugin con actualización automática, salvo que la persona la tuviera apagada (ver «Si prefiere actualizar Cutie a mano»).
 - Descarga el plugin de Cutie con la orden `claude`. Si no está, la instala desde el paquete oficial de Anthropic: con winget en Windows y con su instalador en Mac.
 - Crea `videos` en esta carpeta y añade el bloque de Cutie a su `CLAUDE.md` (si ya había uno, lo añade al final sin tocar lo demás).
 
@@ -124,6 +127,10 @@ Algunos antivirus (Avast, AVG, Norton) vigilan lo que hace Claude en el ordenado
 ## Para actualizar Cutie
 
 Si Cutie dice que está desactualizado, cuéntaselo a la persona y pregúntale si lo actualizas. Si lo pide ella, no hace falta volver a preguntar. Para actualizar, vuelve a descargar el instalador (paso 2, que trae el de siempre al día) y repite solo el paso 5 sin la clave (Windows: `INSTALAR -Si -Pasos registrar -Carpeta "$PWD"`; macOS: `INSTALAR --si --pasos registrar --carpeta "$PWD"`). Después pídele que cierre la app de Claude del todo (en Mac, Cmd+Q) y la vuelva a abrir.
+
+## Si prefiere actualizar Cutie a mano
+
+Si la persona no quiere que Cutie se actualice solo, después del paso 5 apaga la actualización automática: en sus ajustes de Claude (`settings.json` en `~/.claude`, en Windows `%USERPROFILE%\.claude`, o en `CLAUDE_CONFIG_DIR` si existe), con copia de seguridad antes y sin tocar lo demás, pon `"autoUpdate": false` en `extraKnownMarketplaces.cutie`. El instalador lo respeta cuando vuelve a pasar el paso 5. Para ponerse al día, sigue «Para actualizar Cutie».
 
 ## Si Cutie avisa de que Node.js no tiene los parches
 

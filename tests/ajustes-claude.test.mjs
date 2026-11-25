@@ -7,7 +7,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { after, test } from "node:test"
 import { fileURLToPath } from "node:url"
-import { HERRAMIENTAS_CUTIE, PERMISOS_CUTIE, permitirHerramientas, registrar } from "../plugins/cutie/scripts/ajustes-claude.mjs"
+import { HERRAMIENTAS_CUTIE, PERMISOS_CUTIE, actualizacionAutomatica, permitirHerramientas, registrar } from "../plugins/cutie/scripts/ajustes-claude.mjs"
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "plugins", "cutie", "scripts", "ajustes-claude.mjs")
 const carpetas = []
@@ -43,6 +43,19 @@ test("permitirHerramientas: conserva lo que hay y no duplica", () => {
 test("registrar también deja los permisos", () => {
   const a = registrar({}, { licencia: "cut_abcdefghij" })
   assert.ok(PERMISOS_CUTIE.every((p) => a.permissions.allow.includes(p)))
+})
+
+test("registrar: actualización automática por defecto, y respeta que la persona la haya apagado", () => {
+  const nuevo = registrar({}, { licencia: "cut_abcdefghij" })
+  assert.equal(nuevo.extraKnownMarketplaces.cutie.autoUpdate, true)
+  const apagada = { extraKnownMarketplaces: { cutie: { source: { source: "github", repo: "cutie-editor/cutie" }, autoUpdate: false } } }
+  registrar(apagada, { licencia: "cut_abcdefghij" })
+  assert.equal(apagada.extraKnownMarketplaces.cutie.autoUpdate, false)
+  assert.equal(actualizacionAutomatica(apagada), false)
+  // Tras «claude plugin marketplace add» la entrada puede volver sin autoUpdate: se pasa la elección de antes
+  const reescrita = { extraKnownMarketplaces: { cutie: { source: { source: "github", repo: "cutie-editor/cutie" } } } }
+  registrar(reescrita, { licencia: "cut_abcdefghij", autoUpdate: false })
+  assert.equal(reescrita.extraKnownMarketplaces.cutie.autoUpdate, false)
 })
 
 test("paso registrar sobre un settings.json de ejemplo (CLAUDE_CONFIG_DIR): copia, sin duplicar ni borrar", () => {

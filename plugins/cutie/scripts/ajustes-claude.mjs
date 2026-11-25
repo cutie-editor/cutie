@@ -69,9 +69,12 @@ export function permitirHerramientas(a) {
   return a
 }
 
-export function registrar(a, { licencia, fuenteLocal }) {
+// Actualización automática del plugin: sí por defecto, salvo que la persona la haya apagado (autoUpdate: false).
+export const actualizacionAutomatica = (a) => a?.extraKnownMarketplaces?.[MARKETPLACE]?.autoUpdate !== false
+
+export function registrar(a, { licencia, fuenteLocal, autoUpdate = actualizacionAutomatica(a) }) {
   const fuente = fuenteLocal ? { source: "directory", path: resolve(fuenteLocal) } : { source: "github", repo: REPO }
-  seccion(a, "extraKnownMarketplaces")[MARKETPLACE] = { source: fuente, autoUpdate: true }
+  seccion(a, "extraKnownMarketplaces")[MARKETPLACE] = { source: fuente, autoUpdate }
   seccion(a, "enabledPlugins")[ID_PLUGIN] = true
   if (licencia) {
     const configs = seccion(a, "pluginConfigs")
@@ -149,7 +152,9 @@ function resultadoJson(salida) {
 }
 
 export function instalarPlugin({ claude, fuenteLocal }) {
-  const licencia = licenciaGuardada(leerAjustes())
+  const antes = leerAjustes()
+  const licencia = licenciaGuardada(antes)
+  const autoUpdate = actualizacionAutomatica(antes)
   const mercado = ejecutarClaude(claude, ["plugin", "marketplace", "add", fuenteLocal ? resolve(fuenteLocal) : REPO])
   const instalar = () => resultadoJson(ejecutarClaude(claude, ["plugin", "install", ID_PLUGIN, "--scope", "user", "--json", "-y",
     ...(licencia ? ["--config", `licencia=${licencia}`] : [])]))
@@ -166,8 +171,8 @@ export function instalarPlugin({ claude, fuenteLocal }) {
     const salida = ejecutarClaude(claude, ["plugin", "update", ID_PLUGIN])
     detalle = `tenía la ${r.installedVersion} y hay la ${r.availableVersion}: ${salida.split(/\r?\n/).pop()}`
   }
-  // La orden claude reescribe la entrada del marketplace: se vuelven a poner autoUpdate, env y licencia
-  guardar(registrar(leerAjustes(), { licencia, fuenteLocal }))
+  // La orden claude reescribe la entrada del marketplace: se vuelven a poner autoUpdate (como lo tenía), env y licencia
+  guardar(registrar(leerAjustes(), { licencia, fuenteLocal, autoUpdate }))
   return { ok: r?.outcome === "ok", detalle }
 }
 
@@ -213,6 +218,7 @@ export function estado() {
     licencia_tapada: tapar(clave),
     licencia_formato: clave.startsWith("cut_") ? "si" : "no",
     telemetria: a.env?.HYPERFRAMES_NO_TELEMETRY === "1" ? "si" : "no",
+    actualizacion: mercado ? (actualizacionAutomatica(a) ? "si" : "no") : "",
     https: a.env?.CLAUDE_CODE_PLUGIN_PREFER_HTTPS === "1" ? "si" : "no",
     espera_mcp: Number(a.env?.MCP_TOOL_TIMEOUT) >= ESPERA_MCP_MS ? "si" : "no",
     descargado: registro || mercado?.source === "directory" ? "si" : "no",

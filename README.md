@@ -72,9 +72,9 @@ La transcripción, el montaje y el render se hacen en tu equipo. Los reels que n
 - HyperFrames, el motor con el que se montan los vídeos (su navegador y sus guías).
 - Las fuentes libres de las plantillas: Anton, Caveat, Poppins, Inter y JetBrains Mono (de Google Fonts, licencia OFL).
 - Opcional: Tesseract, de Mirage. Si lo instalas, aceptas sus condiciones de uso.
-- El plugin de Cutie para Claude (versión 0.6.1), conectado con tu clave. Incluye dos ayudantes internos, `cutie-director` y `cutie-revisor`, que Claude lanza solo cuando hace falta; el instalador también deja permitidas en tu configuración de Claude las herramientas de Cutie.
+- El plugin de Cutie para Claude (versión 0.6.1), conectado con tu clave. Incluye dos ayudantes internos, `cutie-director` y `cutie-revisor`, que Claude lanza solo cuando hace falta; el instalador también deja permitidas en tu configuración de Claude las cinco herramientas de Cutie que usan esos ayudantes.
 
-En tus ajustes de Claude (`settings.json` de Claude Code), con una copia de seguridad antes y sin tocar lo demás, el instalador añade el catálogo y el plugin de Cutie, tu clave, el permiso para las cinco herramientas de Cutie que usan sus ayudantes (dirección, revisión, variantes, encargo y entrega) y tres variables: `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1` (descarga el plugin por HTTPS), `MCP_TOOL_TIMEOUT=900000` (espera a Cutie hasta 15 minutos) y `NODE_USE_SYSTEM_CA=1` (Node.js usa también los certificados del sistema, para funcionar con antivirus que revisan las conexiones seguras).
+En tus ajustes de Claude (`settings.json` de Claude Code), con una copia de seguridad antes y sin tocar lo demás, el instalador añade el catálogo y el plugin de Cutie (con actualización automática: si prefieres actualizarlo tú, pídele a Claude que la apague), tu clave, el permiso para las cinco herramientas de Cutie que usan sus ayudantes (dirección, revisión, variantes, encargo y entrega) y tres variables: `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1` (descarga el plugin por HTTPS), `MCP_TOOL_TIMEOUT=900000` (espera a Cutie hasta 15 minutos) y `NODE_USE_SYSTEM_CA=1` (Node.js usa también los certificados del sistema, para funcionar con antivirus que revisan las conexiones seguras).
 
 Lo de Cutie se guarda en su propia carpeta: `%LOCALAPPDATA%\Cutie` en Windows y `~/.local/share/cutie` en Mac.
 
